@@ -1,15 +1,29 @@
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <sys/stat.h>
 #include <string.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <fcntl.h>
 
 int errorMessage()
 {
     char error_message[30] = "An error has occurred\n";
     fprintf(stderr, "%s", error_message);
     return 1;
+}
+
+int printPrompt()
+{
+    char cwd[100];
+    if (getcwd(cwd, sizeof(cwd)) == NULL)
+    {
+        errorMessage();
+        return 1;
+    }
+    fprintf(stdout, "\033[0;32mUVash\033[0m:\033[0;34m%s\033[0m:$ ", cwd);
+    return 0;
 }
 
 int executeChdir(char *args[])
@@ -19,19 +33,27 @@ int executeChdir(char *args[])
         errorMessage();
         return 1;
     }
-    if (!chdir(args[1]))
+    if (chdir(args[1]))
     {
         errorMessage();
+        return 1;
     }
     return 0;
 }
 
-int executeStandardCommand(char *args[])
+int executeStandardCommand(char *args[], char *redirection, int mode)
 {
+    int stream;
     pid_t pid;
+    stream = open(redirection, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
     pid = fork();
     if (pid == 0)
     {
+        if (mode > 1)
+        {
+            dup2(stream, 1);
+            dup2(stream, 2);
+        }
         execvp(args[0], args);
     }
     else
@@ -41,21 +63,48 @@ int executeStandardCommand(char *args[])
     return 0;
 }
 
-int parseCommand(char *subString) {
+int parseCommand(char *subString)
+{
+    char *redirections[25];
+    char *found;
+    int i = 0;
+    int mode = 0;
     char *args[100];
     int j = 0;
-    char *found;
     char *delim = " \t";
-    while ((found = strsep(&subString, delim)) != NULL)
+    while ((found = strsep(&subString, ">")) != NULL)
+    {
+        if (*found != '\0')
+        {
+            redirections[i++] = found;
+            mode++;
+        }
+    }
+    for (int k = i; k < 25; k++)
+    {
+        redirections[k] = NULL;
+    }
+    while ((found = strsep(&redirections[0], delim)) != NULL)
     {
         if (*found != '\0')
         {
             args[j++] = found;
         }
     }
-    while (j < 100)
+    for (int k = j; k < 100; k++)
     {
-        args[j++] = NULL;
+        args[k] = NULL;
+    }
+    for (int k = 1; k < mode; k++)
+    {
+        while ((found = strsep(&redirections[k], delim)) != NULL)
+        {
+            if (*found != '\0')
+            {
+                redirections[k] = found;
+                break;
+            }
+        }
     }
     if (strcmp(args[0], "exit") == 0)
     {
@@ -67,16 +116,16 @@ int parseCommand(char *subString) {
     }
     else
     {
-        executeStandardCommand(args);
+        executeStandardCommand(args, redirections[1], mode);
+
     }
     return 0;
 }
 
-
 int parseLine(char *line)
 {
     char *found;
-    char *delim = " &";
+    char *delim = "&";
     while ((found = strsep(&line, delim)) != NULL)
     {
         if (*found != '\0')
@@ -94,7 +143,7 @@ int interactiveMode()
     ssize_t nread;
     while (1)
     {
-        printf("UVash> ");
+        printPrompt();
         nread = getline(&line, &len, stdin);
         if (nread == -1)
         {
@@ -106,7 +155,6 @@ int interactiveMode()
             exit(1);
         }
         line[strlen(line) - 1] = '\0';
-
         parseLine(line);
     }
     free(line);
