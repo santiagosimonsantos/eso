@@ -165,7 +165,7 @@ int interactiveMode()
 int batchMode(char *filePath)
 {
     FILE *stream;
-    char *line = NULL;
+    char **line = NULL;
     size_t len = 0;
     ssize_t nread;
     stream = fopen(filePath, "r");
